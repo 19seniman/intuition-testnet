@@ -27,7 +27,7 @@ const logger = {
     summary: (msg) => console.log(`${colors.green}${colors.bold}[SUMMARY] ${msg}${colors.reset}`),
     banner: () => {
         const border = `${colors.blue}${colors.bold}╔═════════════════════════════════════════╗${colors.reset}`;
-        const title = `${colors.blue}${colors.bold}║   🍉 19Seniman From Insider   🍉    ║${colors.reset}`;
+        const title = `${colors.blue}${colors.bold}║   🍉 19Seniman From Insider    🍉   ║${colors.reset}`;
         const bottomBorder = `${colors.blue}${colors.bold}╚═════════════════════════════════════════╝${colors.reset}`;
         
         console.log(`\n${border}`);
@@ -456,7 +456,7 @@ function startCountdown(duration) {
         
         logger.section("CONFIGURATION SETUP");
         
-        console.log("Choose Your Actions (this will be run automatically every 24 hours):");
+        console.log("Choose Your Actions (this will be run automatically every 5 hours):");
         console.log("1) Intuition → Base");
         console.log("2) Base → Intuition");
         console.log("3) Both Actions (Withdraw & Bridge)");
@@ -473,7 +473,7 @@ function startCountdown(duration) {
             if (choice === "1" || choice === "3") {
                 config.amtWithdraw = (await ask(rl, "Amount to withdraw from Intuition (e.g., 0.01): ")).trim();
                 if (!config.amtWithdraw || Number(config.amtWithdraw) <= 0) { logger.critical("Invalid amount."); process.exit(1); }
-                config.destOnBase = (await ask(rl, "Destination on Base Sepolia (input your same address): ")).trim();
+                config.destOnBase = (await ask(rl, "Destination on Base Sepolia (blank = same address): ")).trim();
             }
             if (choice === "2" || choice === "3") {
                 config.amtDeposit = (await ask(rl, "Amount tTRUST to bridge to Intuition (e.g., 0.0001): ")).trim();
@@ -490,18 +490,18 @@ function startCountdown(duration) {
         // Menjalankan tugas untuk pertama kali
         await runTasks(config);
 
-        // Menjadwalkan tugas untuk dijalankan setiap 24 jam
-        const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
+        // Menjadwalkan tugas untuk dijalankan setiap 5 jam
+        const fiveHoursInMs = 5 * 60 * 60 * 1000;
         logger.section("SCHEDULING");
-        logger.info("Initial run complete. The script will now run automatically every 24 hours.");
+        logger.info("Initial run complete. The script will now run automatically every 5 hours.");
         
-        startCountdown(twentyFourHoursInMs);
+        startCountdown(fiveHoursInMs);
         
         setInterval(async () => {
             await runTasks(config);
-            logger.info("Run complete. Waiting for the next 24-hour cycle.");
-            startCountdown(twentyFourHoursInMs);
-        }, twentyFourHoursInMs);
+            logger.info("Run complete. Waiting for the next 5-hour cycle.");
+            startCountdown(fiveHoursInMs);
+        }, fiveHoursInMs);
 
     } catch (e) {
         logger.critical(`An error occurred during initial setup: ${e.message || String(e)}`);
