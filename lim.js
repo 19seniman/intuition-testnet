@@ -473,7 +473,7 @@ function startCountdown(duration) {
             if (choice === "1" || choice === "3") {
                 config.amtWithdraw = (await ask(rl, "Amount to withdraw from Intuition (e.g., 0.01): ")).trim();
                 if (!config.amtWithdraw || Number(config.amtWithdraw) <= 0) { logger.critical("Invalid amount."); process.exit(1); }
-                config.destOnBase = (await ask(rl, "Destination on Base Sepolia (blank = same address): ")).trim();
+                config.destOnBase = (await ask(rl, "Destination on Base Sepolia (input your same address): ")).trim();
             }
             if (choice === "2" || choice === "3") {
                 config.amtDeposit = (await ask(rl, "Amount tTRUST to bridge to Intuition (e.g., 0.0001): ")).trim();
