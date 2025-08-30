@@ -69,11 +69,8 @@ const ARBSYS_ABI = [
 ];
 
 const ERC20_INBOX_ADDR = "0xBd983e1350263d1BE5DE4AEB8b1704A0Ea0be350";
-const ERC20_BRIDGE_ADDR = "0xCd02bD4dC76551cE2Db94879bC1e814a9E8C7A40";
-const ERC20_OUTBOX_ADDR = "0xBEC1462f12f8a968e07ae3D60C8C32Cd32A23826";
 const TTRUST_TOKEN_ADDR = "0xA54b4E6e356b963Ee00d1C947f478d9194a1a210";
-
-const ETH_INBOX_ADDR = "0x6BEbC4925716945D46F0Ec336D5C2564F419682C";
+const ERC20_OUTBOX_ADDR = "0xBEC1462f12f8a968e07ae3D60C8C32Cd32A23826";
 
 const ERC20_INBOX_ABI = [
     "function createRetryableTicket(address to, uint256 l2CallValue, uint256 maxSubmissionCost, address excessFeeRefundAddress, address callValueRefundAddress, uint256 gasLimit, uint256 maxFeePerGas, uint256 tokenTotalFeeAmount, bytes data) returns (uint256)"
@@ -89,11 +86,6 @@ const TTRUST_ABI = [
     "function allowance(address owner, address spender) view returns (uint256)",
     "function balanceOf(address account) view returns (uint256)",
     "function transfer(address to, uint256 amount) returns (bool)"
-];
-
-const ETH_INBOX_ABI = [
-    "function depositEth() payable returns (uint256)",
-    "function depositEth(address dest) payable returns (uint256)"
 ];
 
 const TNS_CONTRACT_ADDR = "0xb4D38068F8982c15CaD9f98adE6C2954567e2153";
@@ -157,7 +149,6 @@ function httpsRequest(options, data = null) {
     });
 }
 
-// ... (Semua fungsi pembantu lainnya seperti checkDomainAvailability, registerDomainAPI, dll., tetap sama)
 async function checkDomainAvailability(domainName) {
     const options = {
         hostname: 'tns.intuition.box',
@@ -214,7 +205,13 @@ async function registerTrustDomain(intuitionWallet, domainName) {
     const bal = await provider.getBalance(intuitionWallet.address);
     const feeParams = await getFeeParams(provider);
 
-    const estGas = await tnsContract.register.estimateGas(cleanDomainName, 1, { value });
+    let estGas;
+    try {
+        estGas = await tnsContract.register.estimateGas(cleanDomainName, 1, { value });
+    } catch(e) {
+        throw new Error(`Gas estimation for domain registration failed: ${e.shortMessage || e.message}`);
+    }
+    
     const perGas = feeParams.maxFeePerGas ?? feeParams.gasPrice;
     const feeWei = perGas ? (estGas * perGas) : 0n;
     const required = value + feeWei;
@@ -252,6 +249,12 @@ async function bridgeBaseToIntuition(baseWallet, amountTTrust, destL2Address) {
     const tTrustToken = new ethers.Contract(TTRUST_TOKEN_ADDR, TTRUST_ABI, baseWallet);
     const erc20Inbox = new ethers.Contract(ERC20_INBOX_ADDR, ERC20_INBOX_ABI, baseWallet);
     const value = ethers.parseEther(String(amountTTrust));
+
+    // Pengecekan saldo di awal
+    const tokenBal = await tTrustToken.balanceOf(baseWallet.address);
+    if (tokenBal < value) {
+        throw new Error(`Insufficient tTRUST balance. Have ${fmtEther(ethers, tokenBal)}, need ${amountTTrust}.`);
+    }
 
     logger.info(`Bridging ${amountTTrust} tTRUST to ${destL2Address || baseWallet.address}`);
     
@@ -397,7 +400,14 @@ async function runTasks(config) {
                     try {
                         await bridgeBaseToIntuition(wL1, amtDeposit, dest);
                     } catch (e) {
-                        logger.error(`Bridge failed for ${wL1.address}: ${e.message || e}`);
+                        // PENANGANAN EROR YANG DIPERBARUI
+                        if (e.message && (e.message.includes('transfer amount exceeds balance') || e.message.includes('Insufficient tTRUST balance'))) {
+                            logger.error(`Bridge failed for ${wL1.address}: Saldo token tTRUST tidak cukup.`);
+                            logger.warn("Silakan isi saldo tTRUST Anda melalui faucet resmi Intuition di jaringan Base Sepolia.");
+                        } else {
+                            // Jika eror lain, tampilkan pesan eror seperti biasa
+                            logger.error(`Bridge failed for ${wL1.address}: ${e.message || e}`);
+                        }
                     }
                 }
             }
@@ -459,7 +469,7 @@ function startCountdown(duration) {
         if (choice === "4") {
             config.domainName = (await ask(rl, "Enter domain name (without .trust): ")).trim();
             if (!config.domainName) { logger.critical("Domain name is required."); process.exit(1); }
-        } else {
+        } else if (["1", "2", "3"].includes(choice)) {
             if (choice === "1" || choice === "3") {
                 config.amtWithdraw = (await ask(rl, "Amount to withdraw from Intuition (e.g., 0.01): ")).trim();
                 if (!config.amtWithdraw || Number(config.amtWithdraw) <= 0) { logger.critical("Invalid amount."); process.exit(1); }
@@ -470,6 +480,9 @@ function startCountdown(duration) {
                 if (!config.amtDeposit || Number(config.amtDeposit) <= 0) { logger.critical("Invalid amount."); process.exit(1); }
                 config.destOnIntuition = (await ask(rl, "Destination on Intuition (blank = same address): ")).trim();
             }
+        } else {
+            logger.critical("Invalid choice. Please enter a number between 1 and 4.");
+            process.exit(1);
         }
         
         rl.close(); // Tutup readline setelah selesai konfigurasi
