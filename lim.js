@@ -340,121 +340,147 @@ async function registerTrustDomain(intuitionWallet, domainName) {
   }
 }
 
+// =================================================================================
+// ===== FUNGSI YANG DIPERBARUI ====================================================
+// =================================================================================
 async function bridgeBaseToIntuition(baseWallet, amountTTrust, destL2Address) {
-  const ethers = await E();
-  const provider = baseWallet.provider;
+    const ethers = await E();
+    const provider = baseWallet.provider;
 
-  const net = await provider.getNetwork();
-  if (Number(net.chainId) !== NET.baseSepolia.chainId) {
-    logger.warn(`Connected chainId ${String(net.chainId)}; expected ${NET.baseSepolia.chainId}. Check RPC.`);
-  }
+    const net = await provider.getNetwork();
+    if (Number(net.chainId) !== NET.baseSepolia.chainId) {
+        logger.warn(`Connected chainId ${String(net.chainId)}; expected ${NET.baseSepolia.chainId}. Check RPC.`);
+    }
 
-  const tTrustToken = new ethers.Contract(TTRUST_TOKEN_ADDR, TTRUST_ABI, baseWallet);
-  const erc20Inbox = new ethers.Contract(ERC20_INBOX_ADDR, ERC20_INBOX_ABI, baseWallet);
+    const tTrustToken = new ethers.Contract(TTRUST_TOKEN_ADDR, TTRUST_ABI, baseWallet);
+    const erc20Inbox = new ethers.Contract(ERC20_INBOX_ADDR, ERC20_INBOX_ABI, baseWallet);
 
-  const value = ethers.parseEther(String(amountTTrust));
-  const tokenBal = await tTrustToken.balanceOf(baseWallet.address);
-  const ethBal = await provider.getBalance(baseWallet.address);
+    const value = ethers.parseEther(String(amountTTrust));
+    const tokenBal = await tTrustToken.balanceOf(baseWallet.address);
+    const ethBal = await provider.getBalance(baseWallet.address);
 
-  logger.info(`tTRUST Balance: ${fmtEther(ethers, tokenBal)} tTRUST`);
-  logger.info(`ETH Balance: ${fmtEther(ethers, ethBal)} ETH`);
-  logger.info(`Amount: ${fmtEther(ethers, value)} tTRUST`);
+    logger.info(`Dompet: ${baseWallet.address}`);
+    logger.info(`Saldo tTRUST: ${fmtEther(ethers, tokenBal)} tTRUST`);
+    logger.info(`Saldo ETH (Base Sepolia): ${fmtEther(ethers, ethBal)} ETH`);
+    logger.info(`Jumlah Bridge: ${fmtEther(ethers, value)} tTRUST`);
 
-  if (tokenBal < value) {
-    const short = value - tokenBal;
-    logger.error(`Insufficient tTRUST balance. Short by ${fmtEther(ethers, short)} tTRUST.`);
-    throw new Error("Insufficient tTRUST balance");
-  }
+    // --- PERBAIKAN 1: Pesan eror yang lebih detail untuk saldo tTRUST ---
+    if (tokenBal < value) {
+        const short = value - tokenBal;
+        logger.error(`Saldo tTRUST tidak cukup. Dibutuhkan: ${fmtEther(ethers, value)}, Ditemukan: ${fmtEther(ethers, tokenBal)}, Kurang: ${fmtEther(ethers, short)} tTRUST.`);
+        throw new Error("Insufficient tTRUST balance");
+    }
 
-  const allowance = await tTrustToken.allowance(baseWallet.address, ERC20_INBOX_ADDR);
-  if (allowance < value) {
-    logger.loading("Approving tTRUST spending...");
-    const approveTx = await tTrustToken.approve(ERC20_INBOX_ADDR, value);
-    logger.info(`Approve tx: ${approveTx.hash}`);
-    await approveTx.wait();
-    logger.success("Approval completed");
-  }
+    const allowance = await tTrustToken.allowance(baseWallet.address, ERC20_INBOX_ADDR);
 
-  const params = {
-    to: destL2Address || baseWallet.address,
-    l2CallValue: 10000000000000n,
-    maxSubmissionCost: 0n, 
-    excessFeeRefundAddress: baseWallet.address,
-    callValueRefundAddress: baseWallet.address,
-    gasLimit: 27514n, 
-    maxFeePerGas: 600000000n, 
-    tokenTotalFeeAmount: value,
-    data: "0x"
-  };
+    // --- PERBAIKAN 2: Pengecekan saldo ETH untuk gas fee L1 ---
+    const feeParams = await getFeeParams(provider);
+    const perGas = feeParams.maxFeePerGas ?? feeParams.gasPrice;
 
-  const minBridgeAmount = (params.gasLimit * params.maxFeePerGas) + params.l2CallValue;
-  if (value < minBridgeAmount) {
-      logger.error(`Amount to bridge is too low. It must be at least ${fmtEther(ethers, minBridgeAmount)} tTRUST to cover L2 fees.`);
-      throw new Error("Bridge amount is too low to cover L2 fees.");
-  }
+    // Hanya estimasi jika kita punya harga gas untuk dihitung
+    if (perGas) {
+        try {
+            const tempParams = {
+                to: destL2Address || baseWallet.address, l2CallValue: 10000000000000n, maxSubmissionCost: 0n,
+                excessFeeRefundAddress: baseWallet.address, callValueRefundAddress: baseWallet.address, gasLimit: 27514n,
+                maxFeePerGas: 600000000n, tokenTotalFeeAmount: value, data: "0x"
+            };
 
-  const feeParams = await getFeeParams(provider);
-  
-  logger.loading(`Creating retryable ticket for ${amountTTrust} tTRUST bridge to Intuition...`);
-  
-  try {
-    const estimatedGas = await erc20Inbox.createRetryableTicket.estimateGas(
-        params.to,
-        params.l2CallValue,
-        params.maxSubmissionCost,
-        params.excessFeeRefundAddress,
-        params.callValueRefundAddress,
-        params.gasLimit,
-        params.maxFeePerGas,
-        params.tokenTotalFeeAmount,
-        params.data
-    );
-    logger.info(`Gas estimated successfully: ${estimatedGas.toString()}`);
+            const bridgeGas = await erc20Inbox.createRetryableTicket.estimateGas(
+                tempParams.to, tempParams.l2CallValue, tempParams.maxSubmissionCost, tempParams.excessFeeRefundAddress,
+                tempParams.callValueRefundAddress, tempParams.gasLimit, tempParams.maxFeePerGas,
+                tempParams.tokenTotalFeeAmount, tempParams.data
+            );
 
-    const tx = await erc20Inbox.createRetryableTicket(
-      params.to,
-      params.l2CallValue,
-      params.maxSubmissionCost,
-      params.excessFeeRefundAddress,
-      params.callValueRefundAddress,
-      params.gasLimit,
-      params.maxFeePerGas,
-      params.tokenTotalFeeAmount,
-      params.data,
-      {
-        gasLimit: estimatedGas,
-        maxFeePerGas: feeParams.maxFeePerGas ?? undefined,
-        maxPriorityFeePerGas: feeParams.maxPriorityFeePerGas ?? undefined
-      }
-    );
-    
-    logger.info(`Bridge tx (Step 1 - Create Retryable Ticket): ${tx.hash}`);
-    const rec = await tx.wait();
-    
-    if (rec.status === 0) {
-      logger.error("Create retryable ticket transaction reverted.");
-      throw new Error("Create retryable ticket failed");
-    }
+            let approveGas = 0n;
+            if (allowance < value) {
+                approveGas = await tTrustToken.approve.estimateGas(ERC20_INBOX_ADDR, value);
+            }
 
-    const used = rec.gasUsed ?? 0n;
-    const eff = rec.effectiveGasPrice ?? feeParams.gasPrice ?? 0n;
-    const paid = used * eff;
-    logger.info(`Gas used: ${used.toString()} | Fee (ETH): ${fmtEther(ethers, paid)}`);
-    logger.success(`Retryable ticket created in block ${rec.blockNumber}`);
-    
-    logger.info("Bridging from L1 to L2 is now initiated. The funds will arrive on Intuition automatically.");
-    
-    return { 
-      txHash: tx.hash, 
-      blockNumber: rec.blockNumber,
-      status: 'retryable_ticket_created',
-      message: 'Bridge initiated. Finalization will happen automatically.'
-    };
-  } catch (e) {
-    logger.error(`Bridge failed: ${e.shortMessage || e.message || e}`);
-    throw e;
-  }
+            const requiredEthForGas = (bridgeGas + approveGas) * perGas;
+            logger.info(`Estimasi biaya gas L1: ~${fmtEther(ethers, requiredEthForGas)} ETH`);
+
+            if (ethBal < requiredEthForGas) {
+                const short = requiredEthForGas - ethBal;
+                logger.error(`Saldo ETH tidak cukup untuk gas fee di L1 (Base Sepolia). Dibutuhkan: ~${fmtEther(ethers, requiredEthForGas)}, Ditemukan: ${fmtEther(ethers, ethBal)}, Kurang: ~${fmtEther(ethers, short)} ETH.`);
+                throw new Error("Insufficient ETH for L1 gas fees");
+            }
+        } catch (e) {
+            logger.warn(`Gagal mengestimasi gas L1, akan melanjutkan dengan asumsi saldo ETH cukup. Error: ${e.shortMessage || e.message}`);
+        }
+    }
+    // --- AKHIR PERBAIKAN ---
+
+    if (allowance < value) {
+        logger.loading("Approving tTRUST spending...");
+        const approveTx = await tTrustToken.approve(ERC20_INBOX_ADDR, value);
+        logger.info(`Approve tx: ${approveTx.hash}`);
+        await approveTx.wait();
+        logger.success("Approval completed");
+    }
+
+    const params = {
+        to: destL2Address || baseWallet.address,
+        l2CallValue: 10000000000000n,
+        maxSubmissionCost: 0n,
+        excessFeeRefundAddress: baseWallet.address,
+        callValueRefundAddress: baseWallet.address,
+        gasLimit: 27514n,
+        maxFeePerGas: 600000000n,
+        tokenTotalFeeAmount: value,
+        data: "0x"
+    };
+
+    const minBridgeAmount = (params.gasLimit * params.maxFeePerGas) + params.l2CallValue;
+    if (value < minBridgeAmount) {
+        logger.error(`Amount to bridge is too low. It must be at least ${fmtEther(ethers, minBridgeAmount)} tTRUST to cover L2 fees.`);
+        throw new Error("Bridge amount is too low to cover L2 fees.");
+    }
+
+    logger.loading(`Creating retryable ticket for ${amountTTrust} tTRUST bridge to Intuition...`);
+
+    try {
+        const tx = await erc20Inbox.createRetryableTicket(
+            params.to, params.l2CallValue, params.maxSubmissionCost, params.excessFeeRefundAddress,
+            params.callValueRefundAddress, params.gasLimit, params.maxFeePerGas,
+            params.tokenTotalFeeAmount, params.data,
+            {
+                maxFeePerGas: feeParams.maxFeePerGas ?? undefined,
+                maxPriorityFeePerGas: feeParams.maxPriorityFeePerGas ?? undefined
+            }
+        );
+
+        logger.info(`Bridge tx (Step 1 - Create Retryable Ticket): ${tx.hash}`);
+        const rec = await tx.wait();
+
+        if (rec.status === 0) {
+            logger.error("Create retryable ticket transaction reverted.");
+            throw new Error("Create retryable ticket failed");
+        }
+
+        const used = rec.gasUsed ?? 0n;
+        const eff = rec.effectiveGasPrice ?? feeParams.gasPrice ?? 0n;
+        const paid = used * eff;
+        logger.info(`Gas used: ${used.toString()} | Fee (ETH): ${fmtEther(ethers, paid)}`);
+        logger.success(`Retryable ticket created in block ${rec.blockNumber}`);
+
+        logger.info("Bridging from L1 to L2 is now initiated. The funds will arrive on Intuition automatically.");
+
+        return {
+            txHash: tx.hash,
+            blockNumber: rec.blockNumber,
+            status: 'retryable_ticket_created',
+            message: 'Bridge initiated. Finalization will happen automatically.'
+        };
+    } catch (e) {
+        logger.error(`Bridge failed: ${e.shortMessage || e.message || e}`);
+        throw e;
+    }
 }
+// =================================================================================
+// ===== AKHIR DARI FUNGSI YANG DIPERBARUI =========================================
+// =================================================================================
+
 async function withdrawFromIntuition(intuitionWallet, amountEth, destL1Address) {
   const ethers = await E();
   const provider = intuitionWallet.provider;
