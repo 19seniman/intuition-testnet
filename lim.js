@@ -6,7 +6,7 @@ const https = require("https");
 // --- KONFIGURASI UNTUK MODE OTOMATIS ---
 const AUTO_CONFIG = {
     // Jumlah tTRUST yang akan di-bridge dari Base Sepolia ke Intuition
-    DEPOSIT_AMOUNT: "0.001", 
+    DEPOSIT_AMOUNT: "0.0001", 
     // Jumlah tTRUST yang akan di-swap ke INTUIT
     SWAP_TTRUST_AMOUNT: "0.0005",
     // Jumlah tTRUST yang akan dipertaruhkan dalam permainan dadu
