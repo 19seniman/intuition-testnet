@@ -807,77 +807,77 @@ async function runAutomatedSequence(walIntuition, walBase) {
         const wL1 = walBase[i];
         logger.section(`Memproses Dompet ${i + 1}/${walIntuition.length}: ${wL1.address}`);
 
+        // Tugas 1: Bridge Base -> Intuition
+        // Jika bridge gagal, kita lanjut ke dompet berikutnya karena tugas lain tidak akan bisa dijalankan.
         try {
-            // Tugas 1: Bridge Base -> Intuition
-            try {
-                logger.step(`Tugas 1: Bridge ${AUTO_CONFIG.DEPOSIT_AMOUNT} tTRUST ke Intuition`);
-                await bridgeBaseToIntuition(wL1, AUTO_CONFIG.DEPOSIT_AMOUNT, wL2.address);
-                logger.success(`Bridge berhasil dimulai. Menunggu ${AUTO_CONFIG.DELAY_AFTER_BRIDGE_MS / 1000} detik agar dana tiba...`);
-                await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_AFTER_BRIDGE_MS));
-            } catch (e) {
-                logger.error(`Gagal pada Tugas 1 (Bridge): ${e.message}`);
-                continue; // Lanjut ke dompet berikutnya jika bridge gagal
-            }
-
-            // Tugas 2: Swap tTRUST -> INTUIT
-            try {
-                logger.step(`Tugas 2: Swap ${AUTO_CONFIG.SWAP_TTRUST_AMOUNT} tTRUST ke INTUIT`);
-                await swapTTrustToIntuit(wL2, AUTO_CONFIG.SWAP_TTRUST_AMOUNT);
-                logger.success('Swap tTRUST ke INTUIT berhasil.');
-                await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_BETWEEN_TASKS_MS));
-            } catch (e) {
-                logger.error(`Gagal pada Tugas 2 (Swap tTRUST): ${e.message}`);
-            }
-            
-            // Tugas 3: Dice Roll
-            try {
-                logger.step(`Tugas 3: Roll Dice dengan ${AUTO_CONFIG.DICE_BET_AMOUNT} tTRUST`);
-                await rollDice(wL2, AUTO_CONFIG.DICE_BET_AMOUNT);
-                logger.success('Roll Dice berhasil.');
-                await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_BETWEEN_TASKS_MS));
-            } catch (e) {
-                logger.error(`Gagal pada Tugas 3 (Dice Roll): ${e.message}`);
-            }
-
-            // Tugas 4: Swap INTUIT -> tTRUST (Jumlah dinamis)
-            try {
-                const intuitContract = new ethers.Contract(INTUIT_TOKEN_ADDR, INTUIT_ABI, wL2);
-                const intuitBalance = await intuitContract.balanceOf(wL2.address);
-                logger.info(`Saldo INTUIT saat ini: ${fmtEther(ethers, intuitBalance)}`);
-
-                if (intuitBalance > 0n) {
-                    const amountToSwap = fmtEther(ethers, intuitBalance);
-                    logger.step(`Tugas 4: Swap semua ${amountToSwap} INTUIT ke tTRUST`);
-                    await swapIntuitToTTrust(wL2, amountToSwap);
-                    logger.success('Swap INTUIT ke tTRUST berhasil.');
-                    await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_BETWEEN_TASKS_MS));
-                } else {
-                    logger.warn("Melewati swap INTUIT: Saldo INTUIT adalah 0.");
-                }
-            } catch (e) {
-                logger.error(`Gagal pada Tugas 4 (Swap INTUIT): ${e.message}`);
-            }
-
-            // Tugas 5: Withdraw Intuition -> Base
-            try {
-                const l2Balance = await wL2.provider.getBalance(wL2.address);
-                const withdrawAmountWei = ethers.parseEther(AUTO_CONFIG.WITHDRAW_AMOUNT);
-                logger.info(`Saldo Intuition (tTRUST) saat ini: ${fmtEther(ethers, l2Balance)}`);
-
-                if (l2Balance > withdrawAmountWei) {
-                    logger.step(`Tugas 5: Withdraw ${AUTO_CONFIG.WITHDRAW_AMOUNT} tTRUST dari Intuition`);
-                    const withdrawRes = await withdrawFromIntuition(wL2, AUTO_CONFIG.WITHDRAW_AMOUNT, wL1.address);
-                    logger.success(`Withdrawal berhasil dimulai. Tx: ${withdrawRes.txHash}`);
-                    await finalizeBridgeToBase(wL1, withdrawRes.txHash);
-                } else {
-                    logger.warn(`Melewati withdrawal: Saldo tidak cukup. Memiliki ${fmtEther(ethers, l2Balance)}, butuh > ${AUTO_CONFIG.WITHDRAW_AMOUNT}`);
-                }
-            } catch (e) {
-                logger.error(`Gagal pada Tugas 5 (Withdraw): ${e.message}`);
-            }
-
+            logger.step(`Tugas 1: Bridge ${AUTO_CONFIG.DEPOSIT_AMOUNT} tTRUST ke Intuition`);
+            await bridgeBaseToIntuition(wL1, AUTO_CONFIG.DEPOSIT_AMOUNT, wL2.address);
+            logger.success(`Bridge berhasil dimulai. Menunggu ${AUTO_CONFIG.DELAY_AFTER_BRIDGE_MS / 1000} detik agar dana tiba...`);
+            await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_AFTER_BRIDGE_MS));
         } catch (e) {
-            logger.error(`Terjadi kesalahan tak terduga untuk dompet ${wL1.address}: ${e.message}`);
+            logger.error(`Gagal pada Tugas 1 (Bridge): ${e.message}. Melanjutkan ke dompet berikutnya.`);
+            continue; // Lanjut ke dompet berikutnya jika bridge gagal
+        }
+
+        // Tugas 2: Swap tTRUST -> INTUIT
+        // Jika gagal, catat error dan lanjut ke tugas berikutnya untuk dompet ini.
+        try {
+            logger.step(`Tugas 2: Swap ${AUTO_CONFIG.SWAP_TTRUST_AMOUNT} tTRUST ke INTUIT`);
+            await swapTTrustToIntuit(wL2, AUTO_CONFIG.SWAP_TTRUST_AMOUNT);
+            logger.success('Swap tTRUST ke INTUIT berhasil.');
+            await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_BETWEEN_TASKS_MS));
+        } catch (e) {
+            logger.error(`Gagal pada Tugas 2 (Swap tTRUST): ${e.message}. Melanjutkan ke tugas berikutnya.`);
+        }
+        
+        // Tugas 3: Dice Roll
+        // Jika gagal, catat error dan lanjut ke tugas berikutnya untuk dompet ini.
+        try {
+            logger.step(`Tugas 3: Roll Dice dengan ${AUTO_CONFIG.DICE_BET_AMOUNT} tTRUST`);
+            await rollDice(wL2, AUTO_CONFIG.DICE_BET_AMOUNT);
+            logger.success('Roll Dice berhasil.');
+            await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_BETWEEN_TASKS_MS));
+        } catch (e) {
+            logger.error(`Gagal pada Tugas 3 (Dice Roll): ${e.message}. Melanjutkan ke tugas berikutnya.`);
+        }
+
+        // Tugas 4: Swap INTUIT -> tTRUST (Jumlah dinamis)
+        // Jika gagal, catat error dan lanjut ke tugas berikutnya untuk dompet ini.
+        try {
+            const intuitContract = new ethers.Contract(INTUIT_TOKEN_ADDR, INTUIT_ABI, wL2);
+            const intuitBalance = await intuitContract.balanceOf(wL2.address);
+            logger.info(`Saldo INTUIT saat ini: ${fmtEther(ethers, intuitBalance)}`);
+
+            if (intuitBalance > 0n) {
+                const amountToSwap = fmtEther(ethers, intuitBalance);
+                logger.step(`Tugas 4: Swap semua ${amountToSwap} INTUIT ke tTRUST`);
+                await swapIntuitToTTrust(wL2, amountToSwap);
+                logger.success('Swap INTUIT ke tTRUST berhasil.');
+                await new Promise(res => setTimeout(res, AUTO_CONFIG.DELAY_BETWEEN_TASKS_MS));
+            } else {
+                logger.warn("Melewati swap INTUIT: Saldo INTUIT adalah 0.");
+            }
+        } catch (e) {
+            logger.error(`Gagal pada Tugas 4 (Swap INTUIT): ${e.message}. Melanjutkan ke tugas berikutnya.`);
+        }
+
+        // Tugas 5: Withdraw Intuition -> Base
+        // Jika gagal, catat error. Ini adalah tugas terakhir untuk dompet ini.
+        try {
+            const l2Balance = await wL2.provider.getBalance(wL2.address);
+            const withdrawAmountWei = ethers.parseEther(AUTO_CONFIG.WITHDRAW_AMOUNT);
+            logger.info(`Saldo Intuition (tTRUST) saat ini: ${fmtEther(ethers, l2Balance)}`);
+
+            if (l2Balance > withdrawAmountWei) {
+                logger.step(`Tugas 5: Withdraw ${AUTO_CONFIG.WITHDRAW_AMOUNT} tTRUST dari Intuition`);
+                const withdrawRes = await withdrawFromIntuition(wL2, AUTO_CONFIG.WITHDRAW_AMOUNT, wL1.address);
+                logger.success(`Withdrawal berhasil dimulai. Tx: ${withdrawRes.txHash}`);
+                await finalizeBridgeToBase(wL1, withdrawRes.txHash);
+            } else {
+                logger.warn(`Melewati withdrawal: Saldo tidak cukup. Memiliki ${fmtEther(ethers, l2Balance)}, butuh > ${AUTO_CONFIG.WITHDRAW_AMOUNT}`);
+            }
+        } catch (e) {
+            logger.error(`Gagal pada Tugas 5 (Withdraw): ${e.message}.`);
         }
         
         if (i < walIntuition.length - 1) {
